@@ -2,50 +2,6 @@
 
 import re, cmd, time, sys
 
-def stdwrapper(file):
-	def __init__(self, write=sys.stdout, read=sys.stdin):
-		self.closed=False
-		self.encoding=sys.stdout.encoding
-		self.errors=sys.stdout.errors
-		self.fileno=sys.stdout.fileno
-		self.mode="rw"
-		self.name=None
-		self.newlines=sys.stdout.newlines
-		
-		self.write= write
-		self.read = read
-		
-		print "stdwrapper"
-		
-	def __enter__(self): 	return self
-	def __exit__(self): 	pass 
-	def __format__(self): 	pass
-	def close(self): 	pass 
-	
-	def flush(self):
-		self.write.flush()
-		self.read.flush()
-	
-	def isatty(self):            return self.read.isatty() 
-	def next(self):   	     return self.readline()
-	def read(self,*args):        return self.read.read(*args)
-	def readinto(self,*args):    return self.read.readinto(*args)
-	def readline(self, *args):   return self.read.readline(*args) 
-	def readlines(self, *args):  return self.read.readlines(*args) 
-	def seek(self, *args): pass
-	def tell(self): return 0 
-	def truncate(self): pass
-	def write(self, *args):      return self.write.write(*args) 
-	def writelines(self, *args): return self.write.writelines(*args)
-	def xreadlines(self, *args): return self.read.xreadlines(*args)
-
-
-def open(filename, mode="r", buffering=0):
-	if isinstance(filename, file):
-		if filename == "-": return stdwrapper(filename,filename)
-		else:   	return filename
-	
-	else:		    return __builtins__.open(filename, mode, buffering)
 
 def read_ini_file( filename ):
 	"""reads the stream from the given filename and returns an IniFile object"""
