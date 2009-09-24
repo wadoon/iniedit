@@ -1,182 +1,235 @@
 #!/usr/bin/env python
 
-import re, cmd, time
+import re, cmd, time, sys
 
-def read_ini_file( file ):
-	re_pair = re.compile('\w*=\w*')
-	re_section = re.compile('\[.*\]')
-    
-	product = IniFile();
-	last_section = None
+def stdwrapper(file):
+	def __init__(self, write=sys.stdout, read=sys.stdin):
+		self.closed=False
+		self.encoding=sys.stdout.encoding
+		self.errors=sys.stdout.errors
+		self.fileno=sys.stdout.fileno
+		self.mode="rw"
+		self.name=None
+		self.newlines=sys.stdout.newlines
+		
+		self.write= write
+		self.read = read
+		
+		print "stdwrapper"
+		
+	def __enter__(self): 	return self
+	def __exit__(self): 	pass 
+	def __format__(self): 	pass
+	def close(self): 	pass 
+	
+	def flush(self):
+		self.write.flush()
+		self.read.flush()
+	
+	def isatty(self):            return self.read.isatty() 
+	def next(self):   	     return self.readline()
+	def read(self,*args):        return self.read.read(*args)
+	def readinto(self,*args):    return self.read.readinto(*args)
+	def readline(self, *args):   return self.read.readline(*args) 
+	def readlines(self, *args):  return self.read.readlines(*args) 
+	def seek(self, *args): pass
+	def tell(self): return 0 
+	def truncate(self): pass
+	def write(self, *args):      return self.write.write(*args) 
+	def writelines(self, *args): return self.write.writelines(*args)
+	def xreadlines(self, *args): return self.read.xreadlines(*args)
 
-	for line in file.readlines():
-		line = line.strip()
 
-		if   line == '': continue
-		elif line[0] ==';' or line[0] == '#':
-			#print 'c :: ' , line
-			product.addComment(line)
-		elif re_section.match(line):  
-			match = re_section.match(line)
-			( comment , last_section)  = ( line[match.end()+1:] , match.group().strip('[]') )
-			product.addElement( Section( last_section , comment  ) )
-			#print 's :: ' , last_section
-		elif re_pair.match(line):
-			#print 'p :: ' , line
-			match = re_pair.match(line)
-			assignment = match.group()
-			pos = assignment.find('=')
-			key = assignment[0:pos].strip()
-			value = assignment[ pos+1 : ].strip()
-			#print "add to ", last_section
-			product.addElement(Pair(key,value, line[match.end() +1 :]),last_section)
-		else:
-			print "discard line: " + line
+def open(filename, mode="r", buffering=0):
+	if isinstance(filename, file):
+		if filename == "-": return stdwrapper(filename,filename)
+		else:   	return filename
+	
+	else:		    return __builtins__.open(filename, mode, buffering)
 
-	return product
+def read_ini_file( filename ):
+	"""reads the stream from the given filename and returns an IniFile object"""
+	with open(filename, 'r') as file:
+		re_pair = re.compile('\w*\s*=\s*\w*')
+		re_section = re.compile('\[.*\]')
+	
+		product = IniFile();
+		
+		last_section = None
+	
+		for line in file.xreadlines():
+			line = line.strip()
+			if   line == '': continue             #skip empty lines
+			elif line[0] ==';' or line[0] == '#':
+				#print 'c :: ' , line
+				product.addComment(line)
+			elif re_section.match(line):  
+				match = re_section.match(line)
+				( comment , last_section)  = ( line[match.end()+1:] , match.group().strip('[] ') )
+				product.addElement( Section( last_section , comment  ) )
+				#print 's :: ' , last_section
+			elif re_pair.match(line):
+				#print 'p :: ' , line
+				match = re_pair.match(line)
+				assignment = match.group()
+				pos = assignment.find('=')
+				key = assignment[0:pos].strip()
+				value = assignment[ pos+1 : ].strip()
+				#print "add to ", last_section
+				product.addElement(Pair(key,value, line[match.end() +1 :]),last_section)
+			else:
+				print "discard line: " + line
+		return product
 
-def write_ini_file( file, ini, close=False, lb_sec_ch = True, lb_com_ch = True, indent=None):
-		lastElement = None
-		for ele in ini.elements:
+def write_ini_file( filename, ini, lb_sec_ch = True, lb_com_ch = True, indent=""):
+		"""writes the given @ini@ file object to the @filename@	
+		@lb_sec_ch@ leading new line at a section change
+		@lb_com_ch@ True for splitting up comments
+		@indent@ for an leading str by the pairs
+		"""
+		with open(filename, 'w') as file:
+			lastElement = None
+						
+			for ele in ini.elements:
+				if isinstance(ele, Pair): 
+					file.write(str(ele))
+					file.write("\n")
+
+			
+			for ele in ini.elements:
 				currElement = ele.__class__
 				#print currElement
-				if (currElement == Section and lb_sec_ch ) or 												\
-				   (currElement == Comment and lastElement != Comment): file.write('\n')
-				file.write( str(ele)  + '\n' )				
 
+				if currElement is Pair: continue
+
+				#no space between childs and section header
+				if (currElement is Section and lb_sec_ch )        or \
+				   (currElement is Comment and lastElement != Comment): #do not split up lines
+					file.write('\n')
+
+				file.write( str(ele)  + '\n' )
+	
 				if currElement == Section:
 					for pair in ele.pairs:
 						file.write(indent)
 						file.write( str(pair)  + '\n')
-
+	
 				if lastElement == Comment and lb_com_ch and currElement != lastElement:
-					file.write('\n'); 				
-				lastElement = currElement
-
-		if close:
-			close(file)
+					file.write('\n')
+				lastElement = currElement	
 
 
 class IniFile:
 	"""This class represent a INI-File. You can add or remove Section and additionaly comments!
 This systems tries to leave the INI-File in the format before the manupulation!"""
-	def __init__(self):		
+	def __init__(self):
 		self.elements = []
 		
 	def addElement(self, element, section = None):
-		#print element.__class__
+		"""adds a new @element@ object {Pair, Comment, Section} to this ini file. If section is None it will append in the global section"""
+
 		if element.__class__ in [Pair, Comment, Section]:
 			if section is None:
 				self.elements.append( element );
 			else:
-				section = self[section]
-				if section is None:
+				try:
+					section = self[section]
+					section.addElement(element)
+				except KeyError, e:
 					self.addSection(section)
 					self.addElement(element, section)
-				else:
-					section.addElement(element)
 		
 	def addComment(self, comment):
+		"""appends an Comment from the given @comment@"""
 		self.addElement( Comment( comment ) );
 	
 	def addSection(self, name):
+		"""appends a new Section from @name@"""
 		self.addElement( Section( name ) );
 	
 	def addKey(self, section, key, value, comment = None):
-		if section is None:
-			self.elements.append(Pair(key, value, comment));
-			return
-	
-		section = self[section]
-		if section is None:
-			self.addSection(section)
-			self.addKey(section, key, value)
-		else:
-			section.add(key, value)
-	
+		"""add a new Key to the @section@, and @key@=@value@ with the given trailing @comment@"""
+		self.addElement( Pair(key, value, comment) , section );
+
+			
 	def __getitem__(self, key):
 		for sec in self.elements:
-			if isinstance(sec, Section):
-				if sec.name == key:
+			if isinstance(sec, Section) and sec.name == key:	
 					return sec;
-			elif isinstance(sec, Pair):
-				if sec.key == key:
+			elif isinstance(sec, Pair) and sec.key == key:
 					return sec;
-		return None;
+		raise KeyError("now Section or Pair with key %s was found" % key)
 
 	def __delitem__(self,key):
-#		print "delete key ", key
-		for sec in self.elements:
-			if isinstance(sec, Section):
-				if sec.name == key:
-					self.elements.remove(sec)
-			if  isinstance(sec, Pair):
-				if sec.key == key:
-					self.elements.remove(sec)
+		self.elements.remove( self[key] )
 
-	def __getattr__(self, name):
-#		print name
-		for p in self.elements:
-			if isinstance(p, Pair):
-				if p.key  == name:
-					return p;	
-			
+
 class Section:
+	"""represents an Section within an Ini-File with all it's children"""
 	def __init__(self, section_name, comment = None ):
 		self.name = section_name
 		self.comment = Comment( comment	)
-
 		self.pairs = []
 
 	def addElement(self, element):
+		"""adds a Pair or a Comment"""		
 		self.pairs.append(element)
 
-	def add(self, key, value):
-		self.pairs.append( Pair(key, value) )
+	def add(self, key, value,comment=None):
+		"""adds a new Pair with @key@=@value@"""
+		self.pairs.append( Pair(key, value, comment) )
 	
-	def __str__(self):		
+	def __str__(self):
+		"""Section output for ini-file"""
 		if self.name is None:
 			return ""
 		else:
 			return '[' + self.name +']' + str(self.comment)
 
 	def	__getitem__(self, key):
+		""" gets the Pair with the @key@"""
 		for pair in self.pairs:
 			if pair.key == key:
 				return pair	
-		return None
+		raise KeyError("not Pair with key equals '%s' was found" % key)
 
-	def __delitem__(self, key):
-		for pair in self.pairs:
-				if pair.key == key:
-					self.pairs.remove(pair)
+	def __delitem__(self, key):		
+		self.pairs.remove(self[key])
+
+	def __contains__(self, key):
+		try: 
+			self[key]
+			return True
+		except KeyError , e:
+			return False
 
 	def __setitem__(self, key, value):
-			if self[key] is None:
-				self.add(key,value)
-			else:
-				self[key].value = value
+		if key in self: self[key].value = value
+		else:		self.add(key,value)
+	
+		
 	
 class Pair:
+	"""key/value-pair"""
 	def __init__(self, key, value = None, comment = None):
 		self.comment = Comment( comment )
 		self.key = key
 		self.value = value
 
 	def __str__(self):
-		return self.key + '=' + self.value;			
+		return self.key + '=' + self.value
 
 class Comment:
-	def __init__(self, comment):
+	"""Represents a Comment"""
+	def __init__(self, comment = None):
 		self.comment = comment
+	
+	def __bool__(self): return bool(self.comment)
 
 	def __str__(self):
-		if not bool(self.comment): 
-			return ''
-		elif self.comment[0] == ';':
-			return self.comment
-		else:
-			return ';' + self.comment
+		if not self.comment:   		   return ''
+		elif self.comment.startswith(";"): return       self.comment
+		else:                              return ';' + self.comment
 
 
 
@@ -301,13 +354,14 @@ def getValue(product , key , section = None):
 	else:
 		return product[section][key].value
 		
-def setValue(product, key , value , section = None):
-	if section is None:
-		k = product[key]
-	else:
-		k = 
-		if k is None:
-			product.addKey(
+#TODO ------------------------ something is wrong here
+#def setValue(product, key , value , section = None):
+#	if section is None:
+#		k = product[key]
+#	else:
+#		k = #
+#		if k is None:#
+#			product.addKey(
 
 if __name__ == '__main__':
 	from optparse import OptionParser
@@ -318,6 +372,8 @@ if __name__ == '__main__':
 	parser.add_option("", "--section", dest="section", default=None, help="sets the section you want to manupulate")
 	parser.add_option("-i", "--interactive", dest="interactive", default=False, action="store_true" ,
 					  help="open the interactive command line")
+
+	parser.add_option("-o", "--output" , metavar="filename" , dest="output", default="-", help="filename for output the file")	
 
 	parser.add_option("", "--set-pair", metavar="\"KEY=VALUE\"", dest="setpair", default=None,
 				help="gives the key and the value you want to add/set! (e.g. key=value)")
@@ -335,6 +391,7 @@ if __name__ == '__main__':
 				help="specify the section with --section")
 
 	parser.add_option("", "--get" , metavar="KEY" , dest="get", default=None, help="gets the key from the file")
+	
 	
 	(options, args) = parser.parse_args()
 
@@ -376,6 +433,4 @@ if __name__ == '__main__':
 	else:
 		IniCmd(product).cmdloop()
 	
-	if printOut:
-		write_ini_file(sys.stdout, product, indent='  ')
-
+	if printOut: write_ini_file(opts.output , product, indent='  ')
