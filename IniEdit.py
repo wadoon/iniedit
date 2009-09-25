@@ -3,76 +3,90 @@
 import re, cmd, time, sys
 
 
-def read_ini_file( filename ):
+def read_ini_file( filename=None, fileobj=None ):
 	"""reads the stream from the given filename and returns an IniFile object"""
-	with open(filename, 'r') as file:
-		re_pair = re.compile('\w*\s*=\s*\w*')
-		re_section = re.compile('\[.*\]')
 	
-		product = IniFile();
-		
-		last_section = None
-	
-		for line in file.xreadlines():
-			line = line.strip()
-			if   line == '': continue             #skip empty lines
-			elif line[0] ==';' or line[0] == '#':
-				#print 'c :: ' , line
-				product.addComment(line)
-			elif re_section.match(line):  
-				match = re_section.match(line)
-				( comment , last_section)  = ( line[match.end()+1:] , match.group().strip('[] ') )
-				product.addElement( Section( last_section , comment  ) )
-				#print 's :: ' , last_section
-			elif re_pair.match(line):
-				#print 'p :: ' , line
-				match = re_pair.match(line)
-				assignment = match.group()
-				pos = assignment.find('=')
-				key = assignment[0:pos].strip()
-				value = assignment[ pos+1 : ].strip()
-				#print "add to ", last_section
-				product.addElement(Pair(key,value, line[match.end() +1 :]),last_section)
-			else:
-				print "discard line: " + line
-		return product
+	if filename is None:
+		fil = fileobj
+	else:
+		fil = open(filename, 'r')
 
-def write_ini_file( filename, ini, lb_sec_ch = True, lb_com_ch = True, indent=""):
+	re_pair = re.compile('\w*\s*=\s*\w*')
+	re_section = re.compile('\[.*\]')
+
+	product = IniFile();
+		
+	last_section = None
+	
+	for line in fil.xreadlines():
+		line = line.strip()
+		if   line == '': continue             #skip empty lines
+		elif line[0] ==';' or line[0] == '#':
+			#print 'c :: ' , line
+			product.addComment(line)
+		elif re_section.match(line):  
+			match = re_section.match(line)
+			( comment , last_section)  = ( line[match.end()+1:] , match.group().strip('[] ') )
+			product.addElement( Section( last_section , comment  ) )
+			#print 's :: ' , last_section
+		elif re_pair.match(line):
+			#print 'p :: ' , line
+			match = re_pair.match(line)
+			assignment = match.group()
+			pos = assignment.find('=')
+			key = assignment[0:pos].strip()
+			value = assignment[ pos+1 : ].strip()
+			#print "add to ", last_section
+			product.addElement(Pair(key,value, line[match.end() +1 :]),last_section)
+		else:
+			print "discard line: " + line
+
+	if filename is not None: fil.close() #closes self opened file
+	return product
+
+def write_ini_file(ini, filename = None, filobj = None,  lb_sec_ch = True, lb_com_ch = True, indent=""):
 		"""writes the given @ini@ file object to the @filename@	
 		@lb_sec_ch@ leading new line at a section change
 		@lb_com_ch@ True for splitting up comments
 		@indent@ for an leading str by the pairs
 		"""
-		with open(filename, 'w') as file:
-			lastElement = None
-						
-			for ele in ini.elements:
-				if isinstance(ele, Pair): 
-					file.write(str(ele))
-					file.write("\n")
+		
+		if filename is None:  fil = fileobj
+		elif fileobj is None: fil =  open(filename, 'w')
+		else: raise BaseException("no output given")
 
+		lastElement = None
+
+		#write out the global section
+		for ele in ini.elements:
+			if isinstance(ele, Pair): 
+				fil.write(str(ele))
+				fil.write("\n")
+
+	
+		for ele in ini.elements:
+			currElement = ele.__class__
+			#print currElement
+
+			if currElement is Pair: continue
+
+			#no space between childs and section header
+			if (currElement is Section and lb_sec_ch )        or \
+			   (currElement is Comment and lastElement != Comment): #do not split up lines
+				fil.write('\n')
+
+			fil.write( str(ele)  + '\n' )
+	
+			if currElement == Section:
+				for pair in ele.pairs:
+					fil.write(indent)
+					fil.write( str(pair)  + '\n')
+
+			if lastElement == Comment and lb_com_ch and currElement != lastElement:
+				fil.write('\n')
+			lastElement = currElement	
 			
-			for ele in ini.elements:
-				currElement = ele.__class__
-				#print currElement
-
-				if currElement is Pair: continue
-
-				#no space between childs and section header
-				if (currElement is Section and lb_sec_ch )        or \
-				   (currElement is Comment and lastElement != Comment): #do not split up lines
-					file.write('\n')
-
-				file.write( str(ele)  + '\n' )
-	
-				if currElement == Section:
-					for pair in ele.pairs:
-						file.write(indent)
-						file.write( str(pair)  + '\n')
-	
-				if lastElement == Comment and lb_com_ch and currElement != lastElement:
-					file.write('\n')
-				lastElement = currElement	
+			if filname is not None: fil.close()
 
 
 class IniFile:
@@ -267,7 +281,7 @@ Usage: get section:key or key""";
 
 	def do_list(self, prm):
 		if len(prm) == 0:
-			write_ini_file(sys.stdout, self.product, indent='  ')
+			write_ini_file(self.product, fileobj = sys.stdout , indent='  ')
 		else:
 			print self.product[prm]
 			for e in self.product[prm].pairs:
@@ -353,12 +367,11 @@ if __name__ == '__main__':
 
 #	print "I take %s" % args[0]
 
-	read_in = sys.stdin if len(args) == 0 else open(args[0])
-	
-	product = read_ini_file(read_in)
-	
-	printOut = True
-	
+	if args:
+		product = read_ini_file(filename=args[0])
+	else:
+		product = read_ini_file(fileobj=sys.stdin)
+		
 	if not options.interactive:
 		if options.setpair is not None:
 			pos = options.setpair.find('=')
@@ -389,4 +402,7 @@ if __name__ == '__main__':
 	else:
 		IniCmd(product).cmdloop()
 	
-	if printOut: write_ini_file(opts.output , product, indent='  ')
+	if opts.output == "-":
+		write_ini_file(product,fileobj=sys.stdout , indent='  ')
+	else:
+		write_ini_file(product,filename=opts.output, indent='  ')
